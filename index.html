@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AirGuard | Hackathon Edition</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        /* === MODERN DARK THEME CSS === */
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+            
+            --good: #4ade80;
+            --moderate: #facc15;
+            --poor: #fb923c;
+            --severe: #ef4444;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            overflow-x: hidden;
+        }
+
+        /* Navbar */
+        nav {
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(10px);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+
+        .logo { font-size: 1.5rem; font-weight: 700; color: var(--accent); letter-spacing: 1px; }
+        .logo i { margin-right: 8px; }
+
+        .nav-links button {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1rem;
+            margin-left: 20px;
+            cursor: pointer;
+            transition: 0.3s;
+            font-weight: 500;
+        }
+        .nav-links button:hover, .nav-links button.active {
+            color: var(--accent);
+        }
+
+        /* Page Sections */
+        .page-section {
+            display: none; /* Hidden by default */
+            padding: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            animation: fadeIn 0.4s ease-in-out;
+        }
+        .page-section.active { display: block; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Glassmorphism Cards */
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
+        
+        .glass-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border-radius: 15px;
+            padding: 1.5rem;
+            border: 1px solid rgba(255,255,255,0.05);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s;
+        }
+        .glass-card:hover { transform: translateY(-5px); }
+
+        .aqi-number { font-size: 3rem; font-weight: 700; margin: 10px 0; }
+        
+        /* Status Colors */
+        .status-Good { color: var(--good); border-top: 4px solid var(--good); }
+        .status-Moderate { color: var(--moderate); border-top: 4px solid var(--moderate); }
+        .status-Poor { color: var(--poor); border-top: 4px solid var(--poor); }
+        .status-Severe { 
+            color: var(--severe); 
+            border-top: 4px solid var(--severe);
+            animation: pulse-red 2s infinite;
+        }
+
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+
+        /* Map & Forms */
+        #map { height: 500px; border-radius: 15px; border: 2px solid rgba(255,255,255,0.1); }
+        
+        .form-group { margin-bottom: 1.5rem; }
+        .form-group label { display: block; margin-bottom: 0.5rem; color: var(--text-muted); }
+        .form-control {
+            width: 100%; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(0,0,0,0.2); color: white; font-family: 'Inter';
+        }
+        .btn-primary {
+            background: var(--accent); color: #000; border: none; padding: 10px 20px;
+            border-radius: 8px; font-weight: 700; cursor: pointer; transition: 0.3s; width: 100%;
+        }
+        .btn-primary:hover { background: #0ea5e9; }
+        
+        .route-panel { background: var(--card-bg); padding: 15px; border-radius: 10px; margin-top: 15px; border-left: 4px solid var(--good);}
+    </style>
+</head>
+<body>
+
+    <nav>
+        <div class="logo"><i class="fa-solid fa-wind"></i> AirGuard</div>
+        <div class="nav-links">
+            <button onclick="switchTab('home')" id="tab-home" class="active">Live Dashboard</button>
+            <button onclick="switchTab('map')" id="tab-map">Hyperlocal Map & Routes</button>
+            <button onclick="switchTab('report')" id="tab-report">Community Report</button>
+        </div>
+    </nav>
+
+    <section id="home" class="page-section active">
+        <h2><i class="fa-solid fa-satellite-dish"></i> Live Sensor Data</h2>
+        <p style="color: var(--text-muted)">Real-time AQI monitoring across deployed stations.</p>
+        <div id="cards-container" class="grid">
+            <p>Loading sensor data...</p>
+        </div>
+    </section>
+
+    <section id="map" class="page-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h2><i class="fa-solid fa-map-location-dot"></i> Hyperlocal Air Quality & Navigation</h2>
+            <button class="btn-primary" style="width: auto;" onclick="drawCleanRoute()"><i class="fa-solid fa-route"></i> Find Cleanest Route</button>
+        </div>
+        
+        <div id="leaflet-map-container" style="height: 500px; width: 100%; border-radius: 15px;"></div>
+        
+        <div id="route-result" class="route-panel" style="display: none;">
+            <h4><i class="fa-solid fa-leaf text-success"></i> Cleanest Path Found!</h4>
+            <p>We bypassed the "Severe" zone. Estimated distance: <strong>7.2km</strong> | Average AQI Exposure: <strong>45 (Good)</strong></p>
+        </div>
+    </section>
+
+    <section id="report" class="page-section">
+        <h2><i class="fa-solid fa-bullhorn"></i> Report Local Pollution</h2>
+        <p style="color: var(--text-muted)">Help crowdsource data by reporting active pollution sources.</p>
+        
+        <div class="glass-card" style="max-width: 600px; margin: 0 auto;">
+            <form id="complaintForm">
+                <div class="form-group">
+                    <label>Pollution Type</label>
+                    <select id="type" class="form-control">
+                        <option>Garbage Burning</option>
+                        <option>Construction Dust</option>
+                        <option>Industrial Smoke</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Location (Auto-detected for demo)</label>
+                    <input type="text" id="location" class="form-control" value="Vasant Kunj, Sector C" readonly>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="desc" class="form-control" rows="3" placeholder="Describe the severity..."></textarea>
+                </div>
+                <button type="submit" class="btn-primary">Submit Report to Authorities</button>
+            </form>
+            <div id="form-success" style="display: none; color: var(--good); margin-top: 15px; text-align: center;">
+                <i class="fa-solid fa-check-circle"></i> Report submitted successfully!
+            </div>
+        </div>
+    </section>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // --- 1. NAVIGATION LOGIC ---
+        function switchTab(tabId) {
+            // Hide all pages
+            document.querySelectorAll('.page-section').forEach(page => page.classList.remove('active'));
+            document.querySelectorAll('.nav-links button').forEach(btn => btn.classList.remove('active'));
+            
+            // Show selected page
+            document.getElementById(tabId).classList.add('active');
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+
+            // Fix map rendering bug when switching tabs
+            if(tabId === 'map') {
+                setTimeout(() => { myMap.invalidateSize(); }, 100);
+            }
+        }
+
+        // --- 2. DASHBOARD DATA LOGIC ---
+        async function fetchLiveAirQuality() {
+            try {
+                const res = await fetch('http://localhost:5000/api/air-quality/live');
+                const data = await res.json();
+                
+                const container = document.getElementById('cards-container');
+                container.innerHTML = ''; // Clear loading text
+
+                data.forEach(station => {
+                    const card = `
+                        <div class="glass-card status-${station.healthCategory}">
+                            <h4>${station.name}</h4>
+                            <p style="font-size: 0.9rem; color: #94a3b8;">${station.city}</p>
+                            <div class="aqi-number">${station.aqi}</div>
+                            <p><strong>Status:</strong> ${station.healthCategory}</p>
+                            <p style="font-size: 0.85rem; font-style: italic; margin-top: 10px;">${station.advisory}</p>
+                        </div>
+                    `;
+                    container.innerHTML += card;
+                });
+            } catch (err) {
+                console.error("Make sure your Node backend is running!");
+            }
+        }
+
+        // Refresh dashboard every 5 seconds
+        setInterval(fetchLiveAirQuality, 5000);
+        fetchLiveAirQuality();
+
+        // --- 3. MAP LOGIC (Hyperlocal & Routes) ---
+        // Initialize Map centered on Delhi
+        const myMap = L.map('leaflet-map-container').setView([28.6139, 77.2090], 11);
+        
+        // Add dark-themed map tiles
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+        }).addTo(myMap);
+
+        // Fetch data once to place circles on map
+        async function plotSensorsOnMap() {
+            const res = await fetch('http://localhost:5000/api/air-quality/live');
+            const data = await res.json();
+
+            data.forEach(st => {
+                let color = '#4ade80'; // Green
+                if (st.aqi > 300) color = '#ef4444'; // Red
+                else if (st.aqi > 200) color = '#fb923c'; // Orange
+
+                L.circle([st.coordinates[1], st.coordinates[0]], {
+                    color: color,
+                    fillColor: color,
+                    fillOpacity: 0.4,
+                    radius: 3000 // 3km radius representation
+                }).addTo(myMap).bindPopup(`<b>${st.name}</b><br>AQI: ${st.aqi}`);
+            });
+        }
+        plotSensorsOnMap();
+
+        async function drawCleanRoute() {
+    try {
+        const response = await fetch('http://localhost:5000/api/routes/predict');
+        const data = await response.json();
+
+        // Clear existing paths if any (Optional: keeps the map clean)
+        // myMap.eachLayer((layer) => { if (layer instanceof L.Polyline || layer instanceof L.Circle) myMap.removeLayer(layer); });
+
+        // 1. Draw Zones from seedData
+        data.predictedZones.forEach(zone => {
+            L.circle(zone.center, {
+                color: '#ef4444',
+                fillColor: '#ef4444',
+                fillOpacity: 0.3,
+                radius: zone.radius
+            }).addTo(myMap).bindPopup(`<b>Zone: ${zone.name}</b><br>Predicted AQI: ${zone.aqi}`);
+        });
+
+        // 2. Draw the Path
+        const polyline = L.polyline(data.safePath, {
+            color: '#4ade80',
+            weight: 8,
+            dashArray: '10, 20',
+            opacity: 0.8
+        }).addTo(myMap);
+
+        // 3. Force the map to show everything
+        myMap.fitBounds(polyline.getBounds(), { padding: [40, 40] });
+        
+        document.getElementById('route-result').style.display = 'block';
+        document.getElementById('route-result').innerHTML = `
+            <h4><i class="fa-solid fa-shield-halved"></i> Optimized for Seed Data</h4>
+            <p>Bypassing ${data.predictedZones.length} identified risk zones.</p>
+        `;
+
+    } catch (err) {
+        console.error("Drawing error:", err);
+        alert("Check console - Backend might be unreachable.");
+    }
+}
+
+        // --- 4. FORM LOGIC ---
+        document.getElementById('complaintForm').addEventListener('submit', async (e) => {
+            e.preventDefault(); // Stop page reload
+            
+            // In a real app, you'd fetch('/api/reports') here.
+            // For the hackathon demo, we simulate a successful POST.
+            
+            const btn = e.target.querySelector('button');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
+            
+            setTimeout(() => {
+                btn.innerHTML = 'Submit Report to Authorities';
+                document.getElementById('form-success').style.display = 'block';
+                e.target.reset(); // Clear form
+                
+                // Hide success message after 4 seconds
+                setTimeout(() => { document.getElementById('form-success').style.display = 'none'; }, 4000);
+            }, 1000);
+        });
+// --- NEW: NOTIFICATION LOGIC ---
+
+// 1. Request Permission on Page Load
+if ("Notification" in window) {
+    if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+        Notification.requestPermission();
+    }
+}
+
+// 2. Function to trigger the actual alert
+function sendAirAlert(stationName, aqiValue) {
+    if (Notification.permission === "granted") {
+        new Notification("🚨 High Pollution Alert!", {
+            body: `${stationName} has reached a dangerous AQI of ${aqiValue}. Stay indoors!`,
+            icon: "https://cdn-icons-png.flaticon.com/512/1684/1684426.png" // Optional icon
+        });
+    }
+}
+
+// Keep track of which stations we already alerted for (to avoid spamming)
+let alertedStations = new Set();
+
+async function fetchLiveAirQuality() {
+    try {
+        const res = await fetch('http://localhost:5000/api/air-quality/live');
+        const data = await res.json();
+        
+        const container = document.getElementById('cards-container');
+        container.innerHTML = ''; 
+
+        data.forEach(station => {
+            // CHECK FOR HIGH AQI (Trigger notification if > 200)
+            if (station.aqi > 250 && !alertedStations.has(station.name)) {
+                sendAirAlert(station.name, station.aqi);
+                alertedStations.add(station.name); // Mark as alerted
+            }
+
+            const card = `
+                <div class="glass-card status-${station.healthCategory}">
+                    <h4>${station.name}</h4>
+                    <p style="font-size: 0.9rem; color: #94a3b8;">${station.city}</p>
+                    <div class="aqi-number">${station.aqi}</div>
+                    <p><strong>Status:</strong> ${station.healthCategory}</p>
+                    <p style="font-size: 0.85rem; font-style: italic; margin-top: 10px;">${station.advisory}</p>
+                </div>
+            `;
+            container.innerHTML += card;
+        });
+    } catch (err) {
+        console.error("Backend unreachable");
+    }
+}
+// Voice/Message Alert
+function speakAlert(msg){
+    let message = new SpeechSynthesisUtterance(msg);
+    speechSynthesis.speak(message);
+}
+    </script>
+</body>
+</html>
